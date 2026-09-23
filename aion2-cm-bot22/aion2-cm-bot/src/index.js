@@ -4,10 +4,14 @@ const cron = require('node-cron');
 
 const { fetchArticleList } = require('./crawler');
 const { alreadyNotified, markNotified, isBoardSeeded, markBoardSeeded } = require('./state');
+const characterCommand = require('./characterCommand');
+const { closeBrowser, warmUp } = require('./characterSearch');
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const TARGET_URL = process.env.TARGET_URL || 'https://aion2.plaync.com/ko-kr/board/cm_story/list';
+// /캐릭터검색 을 허용할 채널 (지정 안 하면 알림 채널과 동일)
+const SEARCH_CHANNEL_ID = process.env.SEARCH_CHANNEL_ID || CHANNEL_ID;
 const BOARD_KEY = 'cm_story'; // state.json에 기준선 초기화 여부를 구분해서 저장하기 위한 키
 
 if (!TOKEN || !CHANNEL_ID) {
@@ -15,7 +19,8 @@ if (!TOKEN || !CHANNEL_ID) {
   process.exit(1);
 }
 
-// 이 봇은 메시지를 "보내기만" 하므로 별도 privileged intent(Message Content 등)는 필요 없다.
+// 알림 전송 + 슬래시 명령어 응답만 하므로 Guilds intent 하나면 충분하다.
+// (슬래시 명령어는 Message Content 같은 privileged intent가 필요 없음)
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 // 이전 크롤링이 아직 끝나지 않았으면 다음 30초 틱을 건너뛰기 위한 플래그.
@@ -93,7 +98,8 @@ async function checkAndNotify() {
   }
 }
 
-client.once('ready', () => {
+// discord.js 최신 버전에서 'ready' → 'clientReady' 로 이름이 바뀜 (경고 제거)
+client.once('clientReady', () => {
   console.log(`로그인 완료: ${client.user.tag}`);
 
   // 매주 화요일, 19:00~21:00 사이에 30초 간격으로 실행
@@ -111,6 +117,30 @@ client.once('ready', () => {
   );
 
   console.log('스케줄 등록 완료: 매주 화요일 19:00~21:00, 30초 간격 체크');
+
+  // 첫 /캐릭터검색 이 느리지 않도록 크롬과 사이트 접속을 미리 준비 (실패해도 봇 동작엔 지장 없음)
+  warmUp().catch((err) => console.warn('[캐릭터검색] 워밍업 실패:', err.message));
 });
+
+// ─── 슬래시 명령어 처리 ───
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName !== characterCommand.data.name) return;
+
+  try {
+    await characterCommand.execute(interaction, { allowedChannelId: SEARCH_CHANNEL_ID });
+  } catch (err) {
+    console.error('명령어 처리 실패:', err);
+  }
+});
+
+// 종료 시 재사용 중인 크롬도 같이 닫기
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, async () => {
+    await closeBrowser();
+    client.destroy();
+    process.exit(0);
+  });
+}
 
 client.login(TOKEN);

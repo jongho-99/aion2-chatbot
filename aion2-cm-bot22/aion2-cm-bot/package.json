@@ -1,12 +1,13 @@
 {
-  "name": "aion2-cm-bot",
+  "name": "aion2-bot",
   "version": "1.0.0",
   "description": "AION2 CM아지트 신규 게시물 알림 디스코드 봇",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/index.js",
-    "test:watch": "node src/testWatcher.js"
+    "test:watch": "node src/testWatcher.js",
+    "deploy:commands": "node src/deployCommands.js"
   },
   "dependencies": {
     "discord.js": "^14.15.3",
